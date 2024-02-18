@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Время выполнения операций</title>
+</head>
+<body>
+    <form action="/update_operations" method="post">
+        <h3>Сложение: {{ .Plus }} секунд</h3> 
+        <input type="text" name="plus">
+        <h3>Вычитание: {{ .Minus }} секунд</h3> 
+        <input type="text" name="minus">
+        <h3>Умножение: {{ .Multi }} секунд</h3> 
+        <input type="text" name="multi">
+        <h3>Деление: {{ .Division }} секунд</h3> 
+        <input type="text" name="division">
+        <button name="update">Сохранить данные</button>
+    </form>
+    <form action="/" method="post">
+        <button name="update">Главная странница</button>
+    </form>
+</body>
+</html>

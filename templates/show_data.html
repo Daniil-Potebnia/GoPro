@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Все выражения</title>
+</head>
+<body>
+    <form action="/" method="post">
+        <ul>
+            {{ range .Info }}
+                <li>{{ . }}</li>
+            {{ end }}
+        </ul>
+        <button name="update">Главная странница</button>
+    </form>
+</body>
+</html>

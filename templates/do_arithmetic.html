@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Главная странница с выражнием</title>
+</head>
+<body>
+    <form action="/save_data" method="post">
+        <h4>Текущий агент: {{ .Name }}</h4>
+        <h4>Поменять агента на: </h4>
+        <input type="text" name="new_user">
+        {{ if ne .Prev "" }}
+        <h4>Последняя задача: {{ .Prev }}, Результат: {{ .Res }}</h4>
+        {{ end }}
+        {{ if ne .Task "" }}
+        <h4>Текущая задача: {{ .Task }}</h4>
+        {{ else }}
+        <h4>Введите выражение: </h4>
+        <input type="text" name="task">
+        {{ end }}
+        <button name="update">Обновить данные</button>
+    </form>
+    <form action="/show_data" method="get">
+        <button name="update">Данные о всех выражениях</button>
+    </form>
+    <form action="/operation_time" method="get">
+        <button name="update">Время выполнения операций</button>
+    </form>
+</body>
+</html>
