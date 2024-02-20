@@ -3,7 +3,6 @@ package agent
 import (
 	"database/sql"
 	"first_project/functions"
-	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,22 +11,31 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type Agent struct {
+func Start() { // Запускает работу workers 
+	main := CreateMain()
+	main.Start()
+}
+
+type Agent struct { // Помогает в передачи данных на главнную странницу
 	Name string
 	Task string
 	Prev string
-	Res  int
+	Res  float64
 }
 
-func CreateAgent(name, task, prev string, res int) *Agent {
+func CreateAgent(name, task, prev string, res float64) *Agent { // Конструктор агента
 	return &Agent{Name: name, Task: task, Prev: prev, Res: res}
 }
 
-type MainWorker struct {
+type MonitWorker interface { // Интерфейс мониторинга))))
+	Start()
+}
+
+type MainWorker struct { // Мониторит работу рабочих
 	Workers []Worker
 }
 
-func CreateMain() *MainWorker {
+func CreateMain() *MainWorker { // Конструктор монитора
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	stat, _ := db.Query("SELECT id_task, view FROM tasks WHERE done=?", false)
@@ -47,68 +55,67 @@ func CreateMain() *MainWorker {
 	return &MainWorker{Workers: workers}
 }
 
-func (m *MainWorker) Start() {
+func (m *MainWorker) Start() { // Начало работы и добавления рабочих(парсинг, начало решения)
 	for _, w := range m.Workers {
-		w.Parse()
-		w.Solving()
-	}
-}
-
-type Worker struct {
-	Id      int
-	Task    string
-	Numbers chan string
-	Res     chan int
-	Maxgoru int
-	Wg      *sync.WaitGroup
-	Result  int
-	Done    bool
-}
-
-func CreateWorker(id int, task string) *Worker {
-	return &Worker{Id: id, Task: task, Numbers: make(chan string), Res: make(chan int), Maxgoru: 3, Wg: &sync.WaitGroup{}, Result: 0, Done: false}
-}
-
-func (w *Worker) ChangeNumOfOps(n int) {
-	if n > 1 {
-		w.Maxgoru = n
-	}
-}
-
-func (w *Worker) Parse() {
-	var n string
-	for i := 0; i < len(w.Task); i++ {
-		if strings.Contains("0123456789*/", string(w.Task[i])) {
-			n += string(w.Task[i])
-			if i == len(w.Task)-1 {
-				go func() {
-					w.Numbers <- n
-				}()
-				n = ""
-			}
-		} else if strings.Contains("+-", string(w.Task[i])) {
-			go func() {
-				w.Numbers <- n
-			}()
-			n = ""
-			if w.Task == "-" {
-				n += "-"
-			}
+		if !w.Started {
+			w.Parse()
+			w.Solving()
+			w.Started = true
 		}
 	}
 }
 
-func (w *Worker) Solving() {
+type Worker struct { // Структура рабочих, каждый отвечает за 1 задачу 1 пользователя
+	Id      int
+	Task    string
+	Numbers chan string
+	Res     []float64
+	Result  float64
+	MaxGor  int
+	Done    bool
+	Started bool
+	Mu      *sync.Mutex
+	Length  int
+}
+
+func CreateWorker(id int, task string) *Worker { // Конструктор рабочего
+	return &Worker{Id: id, Task: task, Numbers: make(chan string), Res: []float64{}, Result: 0, Done: false, Started: false, Mu: &sync.Mutex{}, MaxGor: 5}
+}
+
+func (w *Worker) Parse() { // Парсит примеры
+	go func() {
+		defer close(w.Numbers)
+		var n string
+		for i := 0; i < len(w.Task); i++ {
+			if strings.Contains("0123456789*/", string(w.Task[i])) { // Добавляет в канал рабочего все слагаемые примера (5, -8, 4*7,  8/2, - всё это считается слагаемым) и считает их количество 
+				n += string(w.Task[i])
+				if i == len(w.Task)-1 {
+					w.Numbers <- n
+					w.Mu.Lock()
+					w.Length++
+					w.Mu.Unlock()
+					n = ""
+				}
+			} else if strings.Contains("+-", string(w.Task[i])) {
+				w.Numbers <- n
+				w.Mu.Lock()
+				w.Length++
+				w.Mu.Unlock()
+				n = ""
+				if string(w.Task[i]) == "-" {
+					n += "-"
+				}
+			}
+		}
+	}()
+}
+
+func (w *Worker) Solving() { // Решает пример
 	o := functions.GetOperations()
-	for i := 0; i < w.Maxgoru; i++ {
-		w.Wg.Add(1)
+	for i := 0; i < w.MaxGor; i++ { // Паралельно может быть столько решающих одновременно горутин, сколько слагаемых в примере
 		go func() {
-			defer w.Wg.Done()
-			defer close(w.Numbers)
-			defer close(w.Res)
-			for {
-				s := <-w.Numbers
-				if strings.Contains(s, "*") || strings.Contains(s, "/") {
+			for s := range w.Numbers {
+				if strings.Contains(s, "*") || strings.Contains(s, "/") { // Если в слагаемом есть * или /, то оно решается, если нет - добавляется в слайс чисел
 					num1 := ""
 					op := ""
 					first := false
@@ -132,7 +139,6 @@ func (w *Worker) Solving() {
 							}
 							num2 = ""
 							op = string(n)
-							first = false
 						} else {
 							first = true
 							op = string(n)
@@ -140,37 +146,40 @@ func (w *Worker) Solving() {
 					}
 					n1, _ := strconv.Atoi(num1)
 					n2, _ := strconv.Atoi(num2)
+					w.Mu.Lock()
 					if op == "*" {
-						w.Res <- n1 * n2
+						time.Sleep(time.Second * time.Duration(o.Multi))
+						w.Res = append(w.Res, float64(n1*n2))
 					} else if op == "/" {
-						w.Res <- n1 / n2
+						time.Sleep(time.Second * time.Duration(o.Division))
+						w.Res = append(w.Res, float64(n1)/float64(n2))
 					}
+					w.Mu.Unlock()
 				} else {
 					n, _ := strconv.Atoi(s)
-					w.Res <- n
+					w.Mu.Lock()
+					w.Res = append(w.Res, float64(n))
+					w.Mu.Unlock()
 				}
 			}
+			w.Mu.Lock()
+			if w.Length == len(w.Res) && !w.Done { // Если все слагаемые упрощены, то начинается подсчёт окончательного ответа
+				for _, k := range w.Res {
+					if k > 0 {
+						time.Sleep(time.Second * time.Duration(o.Plus))
+						w.Result += k
+					} else {
+						time.Sleep(time.Second * time.Duration(o.Minus))
+						w.Result += k
+					}
+				}
+				w.Done = true
+				db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
+				defer db.Close()
+				com, _ := db.Prepare("UPDATE tasks SET done=?, result=?, time_ended=? WHERE id_task=?") // Сохранение в базу данных
+				com.Exec(true, w.Result, functions.CreateTime(time.Now()).StringTime(), w.Id)
+			}
+			w.Mu.Unlock()
 		}()
 	}
-	fmt.Println(0)
-	w.Wg.Wait()
-	w.Wg.Add(1)
-	go func() {
-		defer w.Wg.Done()
-		defer close(w.Res)
-		for k := range w.Res {
-			if k > 0 {
-				time.Sleep(time.Second * time.Duration(o.Plus))
-				w.Result += k
-			} else {
-				time.Sleep(time.Second * time.Duration(o.Minus))
-				w.Result += k
-			}
-		}
-		w.Done = true
-	}()
-	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
-	defer db.Close()
-	com, _ := db.Prepare("UPDATE tasks SET done=?, result=?, time_ended=? WHERE id_task=?")
-	com.Exec(true, w.Result, functions.CreateTime(time.Now()).StringTime(), w.Id)
 }

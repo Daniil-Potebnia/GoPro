@@ -8,14 +8,15 @@ import (
 	"strconv"
 )
 
-func DoArithmetic(w http.ResponseWriter, r *http.Request) {
+func DoArithmetic(w http.ResponseWriter, r *http.Request) { // Отвечает за отрисовку главной странницы
+	agent.Start()
 	temp, _ := template.ParseFiles("templates/do_arithmetic.html")
 	current_user := functions.CurrentAgent()
 	current_task, prev, res := functions.CurrentTask(current_user)
 	temp.Execute(w, agent.CreateAgent(current_user, current_task, prev, res))
 }
 
-func SaveData(w http.ResponseWriter, r *http.Request) {
+func SaveData(w http.ResponseWriter, r *http.Request) { // Обработка данных с главной странницы (агента, примеры)
 	status := http.StatusOK
 	if r.Method == http.MethodPost {
 		current_user := functions.CurrentAgent()
@@ -40,8 +41,9 @@ func SaveData(w http.ResponseWriter, r *http.Request) {
 					}
 					if new_task != "" && functions.CheckTask(new_task) {
 						functions.WriteNewTask(new_task, new_agent)
+					} else if new_task == "" && new_agent != "" {
+						functions.SwapUser(new_agent)
 					}
-
 				}
 			}
 		}
@@ -50,19 +52,19 @@ func SaveData(w http.ResponseWriter, r *http.Request) {
 	temp.Execute(w, status)
 }
 
-func ShowData(w http.ResponseWriter, r *http.Request) {
+func ShowData(w http.ResponseWriter, r *http.Request) { // Показывает список выражений
 	tasks := functions.GetTasks()
 	temp, _ := template.ParseFiles("templates/show_data.html")
 	temp.Execute(w, tasks)
 }
 
-func OperationTime(w http.ResponseWriter, r *http.Request) {
+func OperationTime(w http.ResponseWriter, r *http.Request) { // Странница с возможностью регулировать время выполнения операций
 	ops := functions.GetOperations()
 	temp, _ := template.ParseFiles("templates/operation_time.html")
 	temp.Execute(w, ops)
 }
 
-func UpdateOperations(w http.ResponseWriter, r *http.Request) {
+func UpdateOperations(w http.ResponseWriter, r *http.Request) { // Обрабатывает данные со странницы операций
 	status := http.StatusOK
 	if r.Method == http.MethodPost {
 		plus, _ := strconv.Atoi(r.FormValue("plus"))
@@ -75,11 +77,8 @@ func UpdateOperations(w http.ResponseWriter, r *http.Request) {
 	temp.Execute(w, status)
 }
 
-func ComputingPower(w http.ResponseWriter, r *http.Request) {
-
-}
-
 func StartServer() {
+	agent.Start()
 	http.HandleFunc("/", http.HandlerFunc(DoArithmetic))
 	http.HandleFunc("/save_data", http.HandlerFunc(SaveData))
 	http.HandleFunc("/show_data", http.HandlerFunc(ShowData))

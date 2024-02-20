@@ -9,7 +9,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func AllAgents() []string {
+func AllAgents() []string { // Возвращает всех пользователей из базы данных
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	stat, _ := db.Query("SELECT user_name FROM users")
@@ -22,7 +22,7 @@ func AllAgents() []string {
 	return all
 }
 
-func IsPersonInDB(agent string) bool {
+func IsPersonInDB(agent string) bool { // Проверка на наличие в базе данных
 	all := AllAgents()
 	for _, one := range all {
 		if one == agent {
@@ -32,7 +32,7 @@ func IsPersonInDB(agent string) bool {
 	return false
 }
 
-func CurrentAgent() string {
+func CurrentAgent() string { // Возвращает текущего пользователя
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	stat, _ := db.Query("SELECT user_name, entry_time FROM users")
@@ -58,7 +58,7 @@ func CurrentAgent() string {
 	return ""
 }
 
-func CurrentTask(name string) (string, string, int) {
+func CurrentTask(name string) (string, string, float64) { // Возвращает текущую задачу текущего агента
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	stat, _ := db.Query("SELECT view FROM tasks WHERE user=? AND done=?", name, false)
@@ -69,12 +69,12 @@ func CurrentTask(name string) (string, string, int) {
 
 	stat, _ = db.Query("SELECT view, result, time_ended FROM tasks WHERE user=? AND done=?", name, true)
 	var views []string
-	var results []int
+	var results []float64
 	var times []string
 	for stat.Next() {
 		var vi, ti string
-		var re int
-		stat.Scan(&vi, re, ti)
+		var re float64
+		stat.Scan(&vi, &re, &ti)
 		views = append(views, vi)
 		results = append(results, re)
 		times = append(times, ti)
@@ -83,8 +83,8 @@ func CurrentTask(name string) (string, string, int) {
 		lv := views[0]
 		lr := results[0]
 		lt := times[0]
-		for i, t := range times {
-			one := FromStrToTime(t)
+		for i := 0; i < len(results); i++ {
+			one := FromStrToTime(times[i])
 			two := FromStrToTime(lt)
 			if one.Compare(two) == 1 {
 				lv = views[i]
@@ -97,11 +97,11 @@ func CurrentTask(name string) (string, string, int) {
 	return res, "", 0
 }
 
-func CheckTask(task string) bool {
+func CheckTask(task string) bool { // Проверка на правильность выражения
 	last_sym := ""
 	for i, s := range task {
 		oper := strings.Contains("+-*/", string(s))
-		if oper && (last_sym == "oper" || last_sym == "" || i == len(task)-1) {
+		if oper && (last_sym == "oper" || last_sym == "" || i == len(task)-1) || !strings.Contains("0123456789-+/* ", string(s)) {
 			return false
 		}
 		if oper {
@@ -113,7 +113,7 @@ func CheckTask(task string) bool {
 	return true
 }
 
-func IsFinished(username string) bool {
+func IsFinished(username string) bool { // Проверка закончено ли прошлое задание данного агента
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	com, _ := db.Query("SELECT done FROM tasks WHERE id_task=(SELECT last_task FROM users WHERE user_name=?)", username)
@@ -124,7 +124,7 @@ func IsFinished(username string) bool {
 	return res
 }
 
-func HasTask(username string) bool {
+func HasTask(username string) bool { // Проверка есть ли задание у данного пользователя
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	stat, _ := db.Query("SELECT last_task FROM users WHERE user_name=?", username)
@@ -135,7 +135,7 @@ func HasTask(username string) bool {
 	return a != 0
 }
 
-func WriteNewTask(task, name string) {
+func WriteNewTask(task, name string) { // Обновляет текущее задание у агента
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	now := CreateTime(time.Now()).StringTime()
@@ -145,14 +145,21 @@ func WriteNewTask(task, name string) {
 	com.Exec(now, name, false, name)
 }
 
-func WriteNewUser(name string) {
+func WriteNewUser(name string) { // Добавляет нового пагента в дб
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	com, _ := db.Prepare("INSERT INTO users(user_name, entry_time) VALUES(?, ?)")
 	com.Exec(name, CreateTime(time.Now()).StringTime())
 }
 
-type MyTime struct {
+func SwapUser(name string) { // Меняет текущего агента
+	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
+	defer db.Close()
+	com, _ := db.Prepare("UPDATE users SET entry_time=? WHERE user_name=?")
+	com.Exec(CreateTime(time.Now()).StringTime(), name)
+}
+
+type MyTime struct { // Структура для удобной обработки времени
 	t        time.Time
 	year     int
 	month    int
@@ -163,7 +170,7 @@ type MyTime struct {
 	nseconds int
 }
 
-func CreateTime(t time.Time) *MyTime {
+func CreateTime(t time.Time) *MyTime { // Создание "Удобного времени"
 	year, month_, day := t.Date()
 	hours := t.Hour()
 	minutes := t.Minute()
@@ -179,7 +186,7 @@ func CreateTime(t time.Time) *MyTime {
 	return &MyTime{t: t, year: year, month: month, day: day, hours: hours, minutes: minutes, seconds: seconds, nseconds: nseconds}
 }
 
-func (m *MyTime) StringTime() string {
+func (m *MyTime) StringTime() string { // Преобразует в строку время
 	return strconv.Itoa(m.year) + "-" + strconv.Itoa(m.month) + "-" + strconv.Itoa(m.day) + " " + strconv.Itoa(m.hours) + ":" + strconv.Itoa(m.minutes) + ":" + strconv.Itoa(m.seconds) + "." + strconv.Itoa(m.nseconds)
 }
 
@@ -198,11 +205,11 @@ func FromStrToTime(date string) time.Time {
 	return time.Date(year, time.Month(month), day, hour, mintes, seconds, nseconds, time.UTC)
 }
 
-type TasksInformation struct {
+type TasksInformation struct { // Хранит задания, помогает отображать данные на сайте
 	Info []string
 }
 
-func GetTasks() *TasksInformation {
+func GetTasks() *TasksInformation { // Получает все существующие задания, решённые и нерешённые
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	stat, _ := db.Query("SELECT done, view, time_started, time_ended FROM tasks")
@@ -219,19 +226,19 @@ func GetTasks() *TasksInformation {
 	}
 	res := []string{"Выражение        Выполнено        Дата начала        Дата оканчания"}
 	for i := 0; i < len(done); i++ {
-		res = append(res, views[i] + "    " + strconv.FormatBool(done[i]) + "    " + starts[i] + "    " + ends[i])
+		res = append(res, views[i]+"    "+strconv.FormatBool(done[i])+"    "+starts[i]+"    "+ends[i])
 	}
 	return &TasksInformation{Info: res}
 }
 
-type Operations struct {
-	Plus int
-	Minus int
-	Multi int
+type Operations struct { // Хранит время выполнения операций
+	Plus     int
+	Minus    int
+	Multi    int
 	Division int
 }
 
-func GetOperations() *Operations {
+func GetOperations() *Operations { // Получает из дб время выполнения операций
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	stat, _ := db.Query("SELECT time FROM operation_time")
@@ -244,7 +251,7 @@ func GetOperations() *Operations {
 	return &Operations{Plus: times[0], Minus: times[1], Multi: times[2], Division: times[3]}
 }
 
-func UpdateOperations(pl, mi, mu, di int) {
+func UpdateOperations(pl, mi, mu, di int) { // Записывает новое время в дб
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
 	com, _ := db.Prepare("UPDATE operation_time SET time=? WHERE symbol=?")
