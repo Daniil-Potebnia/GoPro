@@ -2,12 +2,16 @@ package functions
 
 import (
 	"database/sql"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	_ "github.com/mattn/go-sqlite3"
 )
+
+const hmacSampleSecret = "super_secret_signature"
 
 func AllAgents() []string { // Возвращает всех пользователей из базы данных
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
@@ -30,32 +34,6 @@ func IsPersonInDB(agent string) bool { // Проверка на наличие �
 		}
 	}
 	return false
-}
-
-func CurrentAgent() string { // Возвращает текущего пользователя
-	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
-	defer db.Close()
-	stat, _ := db.Query("SELECT user_name, entry_time FROM users")
-	var name, t string
-	var names, ts []string
-	for stat.Next() {
-		stat.Scan(&name, &t)
-		names = append(names, name)
-		ts = append(ts, t)
-	}
-	if len(names) != 0 {
-		latest := names[0]
-		lt := FromStrToTime(ts[0])
-		for i := 0; i < len(names); i++ {
-			test := FromStrToTime(ts[i])
-			if test.Compare(lt) == 1 {
-				lt = FromStrToTime(ts[i])
-				latest = names[i]
-			}
-		}
-		return latest
-	}
-	return ""
 }
 
 func CurrentTask(name string) (string, string, float64) { // Возвращает текущую задачу текущего агента
@@ -141,22 +119,28 @@ func WriteNewTask(task, name string) { // Обновляет текущее за
 	now := CreateTime(time.Now()).StringTime()
 	com, _ := db.Prepare("INSERT INTO tasks(view, time_started, done, user) VALUES(?, ?, ?, ?)")
 	com.Exec(task, now, false, name)
-	com, _ = db.Prepare("UPDATE users SET entry_time=?, last_task=(SELECT id_task FROM tasks WHERE user=? AND done=?) WHERE user_name=?")
-	com.Exec(now, name, false, name)
+	com, _ = db.Prepare("UPDATE users SET last_task=(SELECT id_task FROM tasks WHERE user=? AND done=?) WHERE user_name=?")
+	com.Exec(name, false, name)
 }
 
-func WriteNewUser(name string) { // Добавляет нового пагента в дб
+func WriteNewUser(name, password string) { // Добавляет нового агента в дб
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
-	com, _ := db.Prepare("INSERT INTO users(user_name, entry_time) VALUES(?, ?)")
-	com.Exec(name, CreateTime(time.Now()).StringTime())
+	com, _ := db.Prepare("INSERT INTO users(user_name, password) VALUES(?, ?)")
+	com.Exec(name, password)
+	new_com, _ := db.Prepare("INSERT INTO operation_time(plus, minus, multi, divis, user) VALUES(?, ?, ?, ?, ?)")
+	new_com.Exec(1, 1, 1, 1, name)
 }
 
-func SwapUser(name string) { // Меняет текущего агента
+func ComparePasswords(user, password string) bool { // Проверяет пароль
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
-	com, _ := db.Prepare("UPDATE users SET entry_time=? WHERE user_name=?")
-	com.Exec(CreateTime(time.Now()).StringTime(), name)
+	stat, _ := db.Query("SELECT password FROM users WHERE user_name=?", user)
+	var real_pass string
+	for stat.Next() {
+		stat.Scan(&real_pass)
+	}
+	return real_pass == password
 }
 
 type MyTime struct { // Структура для удобной обработки времени
@@ -209,10 +193,10 @@ type TasksInformation struct { // Хранит задания, помогает 
 	Info []string
 }
 
-func GetTasks() *TasksInformation { // Получает все существующие задания, решённые и нерешённые
+func GetTasks(name string) *TasksInformation { // Получает все задания агента, решённые и нерешённые
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
-	stat, _ := db.Query("SELECT done, view, time_started, time_ended FROM tasks")
+	stat, _ := db.Query("SELECT done, view, time_started, time_ended FROM tasks WHERE user=?", name)
 	var d bool
 	var view, start, end string
 	var done []bool
@@ -238,28 +222,75 @@ type Operations struct { // Хранит время выполнения опе�
 	Division int
 }
 
-func GetOperations() *Operations { // Получает из дб время выполнения операций
+func GetOperations(user string) *Operations { // Получает из дб время выполнения операций
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
-	stat, _ := db.Query("SELECT time FROM operation_time")
-	var time_ int
-	var times []int
+	stat, _ := db.Query("SELECT plus, minus, multi, divis FROM operation_time WHERE user=?", user)
+	var plus, minus, multi, div int
 	for stat.Next() {
-		stat.Scan(&time_)
-		times = append(times, time_)
+		stat.Scan(&plus, &minus, &multi, &div)
 	}
-	return &Operations{Plus: times[0], Minus: times[1], Multi: times[2], Division: times[3]}
+	return &Operations{Plus: plus, Minus: minus, Multi: multi, Division: div}
 }
 
-func UpdateOperations(pl, mi, mu, di int) { // Записывает новое время в дб
-	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
-	defer db.Close()
-	com, _ := db.Prepare("UPDATE operation_time SET time=? WHERE symbol=?")
-	com.Exec(pl, "+")
-	com, _ = db.Prepare("UPDATE operation_time SET time=? WHERE symbol=?")
-	com.Exec(mi, "-")
-	com, _ = db.Prepare("UPDATE operation_time SET time=? WHERE symbol=?")
-	com.Exec(mu, "*")
-	com, _ = db.Prepare("UPDATE operation_time SET time=? WHERE symbol=?")
-	com.Exec(di, "/")
+func UpdateOperations(pl, mi, mu, di int, user string) { // Записывает новое время в дб
+	if pl != 0 || mi != 0 || mu != 0 || di != 0 {
+		db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
+		defer db.Close()
+		sent := "UPDATE operation_time SET"
+		counter := 0
+		if pl != 0 {
+			sent += " plus=" + strconv.Itoa(pl)
+			counter++
+		}
+		if mi != 0 {
+			if counter != 0 {
+				sent += ","
+			}
+			sent += " minus=" + strconv.Itoa(mi)
+			counter++
+		}
+		if mu != 0 {
+			if counter != 0 {
+				sent += ","
+			}
+			sent += " multi=" + strconv.Itoa(mu)
+			counter++
+		}
+		if di != 0 {
+			if counter != 0 {
+				sent += ","
+			}
+			sent += " divis=" + strconv.Itoa(di)
+			counter++
+		}
+		sent += " WHERE user=?"
+		com, _ := db.Prepare(sent)
+		com.Exec(user)
+	}
+}
+
+func GetToken(token string) string {
+	tokenFromString, _ := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			panic(fmt.Errorf("unexpected signing method: %v", token.Header["alg"]))
+		}
+
+		return []byte(hmacSampleSecret), nil
+	})
+	if claims, ok := tokenFromString.Claims.(jwt.MapClaims); ok {
+		return fmt.Sprint(claims["name"]) 
+	}
+	return ""
+}
+
+func CreateToken(login string) string {
+	now := time.Now()
+	token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"name": login,
+		"nbf":  now.Add(time.Minute).Unix(),
+		"exp":  now.Add(24 * 7 * time.Hour).Unix(),
+		"iat":  now.Unix(),
+	}).SignedString([]byte(hmacSampleSecret))
+	return token
 }

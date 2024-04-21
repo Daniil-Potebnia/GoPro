@@ -27,7 +27,7 @@ func CreateAgent(name, task, prev string, res float64) *Agent { // Констр�
 	return &Agent{Name: name, Task: task, Prev: prev, Res: res}
 }
 
-type MonitWorker interface { // Интерфейс мониторинга))))
+type MonitWorker interface { // Интерфейс мониторинга
 	Start()
 }
 
@@ -38,19 +38,22 @@ type MainWorker struct { // Мониторит работу рабочих
 func CreateMain() *MainWorker { // Конструктор монитора
 	db, _ := sql.Open("sqlite3", "./dbs/main_db.db")
 	defer db.Close()
-	stat, _ := db.Query("SELECT id_task, view FROM tasks WHERE done=?", false)
+	stat, _ := db.Query("SELECT id_task, view, user FROM tasks WHERE done=?", false)
 	var id int
 	var view string
+	var user string
 	var ids []int
 	var views []string
+	var users []string
 	for stat.Next() {
-		stat.Scan(&id, &view)
+		stat.Scan(&id, &view, &user)
 		ids = append(ids, id)
 		views = append(views, view)
+		users = append(users, user)
 	}
 	var workers []Worker
 	for i := 0; i < len(ids); i++ {
-		workers = append(workers, *CreateWorker(ids[i], views[i]))
+		workers = append(workers, *CreateWorker(ids[i], views[i], users[i]))
 	}
 	return &MainWorker{Workers: workers}
 }
@@ -67,6 +70,7 @@ func (m *MainWorker) Start() { // Начало работы и добавлен�
 
 type Worker struct { // Структура рабочих, каждый отвечает за 1 задачу 1 пользователя
 	Id      int
+	User    string
 	Task    string
 	Numbers chan string
 	Res     []float64
@@ -78,8 +82,8 @@ type Worker struct { // Структура рабочих, каждый отве
 	Length  int
 }
 
-func CreateWorker(id int, task string) *Worker { // Конструктор рабочего
-	return &Worker{Id: id, Task: task, Numbers: make(chan string), Res: []float64{}, Result: 0, Done: false, Started: false, Mu: &sync.Mutex{}, MaxGor: 5}
+func CreateWorker(id int, task, user string) *Worker { // Конструктор рабочего
+	return &Worker{Id: id, User: user, Task: task, Numbers: make(chan string), Res: []float64{}, Result: 0, Done: false, Started: false, Mu: &sync.Mutex{}, MaxGor: 5}
 }
 
 func (w *Worker) Parse() { // Парсит примеры
@@ -111,8 +115,8 @@ func (w *Worker) Parse() { // Парсит примеры
 }
 
 func (w *Worker) Solving() { // Решает пример
-	o := functions.GetOperations()
-	for i := 0; i < w.MaxGor; i++ { // Паралельно может быть столько решающих одновременно горутин, сколько слагаемых в примере
+	o := functions.GetOperations(w.User)
+	for i := 0; i < w.MaxGor; i++ { // Паралельно может быть столько решающих горутин, сколько слагаемых в примере
 		go func() {
 			for s := range w.Numbers {
 				if strings.Contains(s, "*") || strings.Contains(s, "/") { // Если в слагаемом есть * или /, то оно решается, если нет - добавляется в слайс чисел

@@ -6,10 +6,9 @@
     <title>Главная странница с выражнием</title>
 </head>
 <body>
+    {{ if ne .Name ""}}
     <form action="/save_data" method="post">
         <h4>Текущий агент: {{ .Name }}</h4>
-        <h4>Поменять агента на: </h4>
-        <input type="text" name="new_user">
         {{ if ne .Prev "" }}
         <h4>Последняя задача: {{ .Prev }}, Результат: {{ .Res }}</h4>
         {{ end }}
@@ -26,6 +25,18 @@
     </form>
     <form action="/operation_time" method="get">
         <button name="update">Время выполнения операций</button>
+    </form>
+    <form action="/logout" method="post">
+        <button name="update">Выйти из аккаунта</button>
+    </form>
+    {{ else }}
+    <h4>Извините, у вас нет прав, войдите в аккаунт</h4>
+    {{ end }}
+    <form action="/register_form" method="get">
+        <button name="update">Создать новый аккаунт</button>
+    </form>
+    <form action="/login_form" method="get">
+        <button name="update">Войти в другой аккаунт</button>
     </form>
 </body>
 </html>

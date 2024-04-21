@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Форма {{ . }}</title>
+</head>
+<body>
+    {{ if eq . "регистрации"}}
+    <form action="/register" method="post">
+        <h4>Введите логин:</h4>
+        <input type="text" name="login">
+        <h4>Введите пароль:</h4>
+        <input type="text" name="password">
+        <button>Подтвердить</button>
+    </form>
+    {{ else }}
+    <form action="/login" method="post">
+        <h4>Введите логин:</h4>
+        <input type="text" name="login">
+        <h4>Введите пароль:</h4>
+        <input type="text" name="password">
+        <button>Подтвердить</button>
+    </form>
+    {{ end }}
+    <form action="/" method="get">
+        <button>Главная странница</button>
+    </form>
+</body>
+</html>
